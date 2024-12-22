@@ -35,7 +35,7 @@ from Backend import DataBase
 
 db = DataBase()
 
-TOKEN = "7547594561:AAFwL_ZI8u6YfihzRDm5DPphf2jIhaGPyfU"
+TOKEN = "1"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 rt = Router()
 
