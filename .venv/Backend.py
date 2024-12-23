@@ -13,6 +13,18 @@ class DataBase:
 
     async def create_tables(self):
         await self.create_users_table()
+        await self.create_items()
+
+    async def create_items(self):
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS items (
+                    photo_id TEXT,
+                    branch TEXT,
+                    shift INTEGER
+                )
+            """)
+            await conn.commit()
 
     async def create_users_table(self):
         async with aiosqlite.connect(self.db_path) as conn:
@@ -42,6 +54,12 @@ class DataBase:
             rows = await cursor.fetchall()
         return rows
 
+    async def get_photos(self):
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute('SELECT * FROM items')
+            rows = await cursor.fetchall()
+        return rows
+
     async def get_users_by_branch(self, branch):
         async with aiosqlite.connect(self.db_path) as conn:
             cursor = await conn.execute("""
@@ -51,6 +69,16 @@ class DataBase:
             """, (branch,))
             rows = await cursor.fetchall()
         return rows
+
+    async def get_user_data(self, user_id):
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute('''
+                SELECT user_id, class_name, photo_mailing, branch, thread_id
+                FROM Users_Data 
+                WHERE user_id = ?
+            ''', (user_id,))
+            result = await cursor.fetchone()
+        return result
 
     async def add_user(self, user_id, class_name, branch, thread_id, join_photo_mailing=0):
         async with aiosqlite.connect(self.db_path) as conn:
@@ -62,6 +90,19 @@ class DataBase:
                 await conn.commit()
             else:
                 return
+
+    async def add_photo(self, photo_id, branch, shift, delete_all: bool):
+        async with aiosqlite.connect(self.db_path) as conn:
+            if delete_all:
+                await conn.execute("""
+                    DELETE FROM items
+                """)
+                await conn.commit()
+            await conn.execute("""
+                INSERT INTO items (photo_id, branch, shift)
+                VALUES (?, ?, ?)
+            """, (photo_id, branch, shift))
+            await conn.commit()
 
     async def delete_user(self, user_id):
         async with aiosqlite.connect(self.db_path) as conn:
@@ -88,7 +129,6 @@ class DataBase:
             ''', (photo_mailing, user_id))
             await conn.commit()
 
-
     async def change_branch_value(self, user_id, branch):
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute('''
@@ -106,13 +146,3 @@ class DataBase:
                 WHERE user_id = ?
             ''', (thread_id, user_id))
             await conn.commit()
-
-    async def get_user_data(self, user_id):
-        async with aiosqlite.connect(self.db_path) as conn:
-            cursor = await conn.execute('''
-                SELECT user_id, class_name, photo_mailing, branch, thread_id
-                FROM Users_Data 
-                WHERE user_id = ?
-            ''', (user_id,))
-            result = await cursor.fetchone()
-        return result
