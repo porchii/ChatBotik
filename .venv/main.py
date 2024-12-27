@@ -56,7 +56,7 @@ async def is_admin(user_id, chat_id):
     try:
         member = await bot.get_chat_member(chat_id, user_id)
 
-        return isinstance(member, ADMINS)
+        return  isinstance(member, ADMINS)
     except:
         return False
 
@@ -65,8 +65,7 @@ async def here_command(message: Message):
     is_admin_user = message.chat.type == 'private' or await is_admin(message.from_user.id,
                                                                                     message.chat.id)
     if not is_admin_user:
-        return await bot.send_message(message.chat.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.",)
+        return
     try:
         await message.answer("Теперь фото с расписанием будут отправляться сюда")
         await db.change_thread_value(message.chat.id, message.message_thread_id)
@@ -75,11 +74,16 @@ async def here_command(message: Message):
 
 @rt.message(F.text == 'Меню⬅️')
 async def menu(message: Message, state: FSMContext):
+    is_admin_user = message.chat.type == 'private' or await is_admin(message.from_user.id,
+                                                                     message.chat.id)
+    if not is_admin_user:
+        return
     await state.clear()
     await bot.send_message(message.chat.id, "Доступные дейcтвия:\n\n"
                                                   "1. Филиал: Выбрать филиал\n\n"
                                                   "2. Смена: Выбрать смену обучения.\n\n"
-                                                  "3. Класс: Выбрать класс обучения",
+                                                  "3. Класс: Выбрать класс обучения\n\n"
+                                            "4. Получить расписание: Получить известное на данный момент расписание.",
                          reply_markup=InlineKeyboardMarkup(
                              inline_keyboard=[
                                  [
@@ -97,7 +101,10 @@ async def menu(message: Message, state: FSMContext):
 
 @rt.message(F.text == 'Профиль🔑')
 async def profile(message: Message, state: FSMContext):
-
+    is_admin_user = message.chat.type == 'private' or await is_admin(message.from_user.id,
+                                                                     message.chat.id)
+    if not is_admin_user:
+        return
     await state.clear()
     await message.answer("👇")
     data = await db.get_user_data(message.chat.id)
@@ -112,6 +119,10 @@ async def profile(message: Message, state: FSMContext):
 
 @rt.message(CommandStart())
 async def Start_Comand(message: Message, state: FSMContext):
+    is_admin_user = message.chat.type == 'private' or await is_admin(message.from_user.id,
+                                                                     message.chat.id)
+    if not is_admin_user:
+        return
     try:
         if not await db.user_exists(message.chat.id):
             await db.add_user(message.chat.id, '-', '-', message.message_thread_id)
@@ -150,8 +161,7 @@ async def settings_shift(query: CallbackQuery, state: FSMContext):
     is_admin_user = query.message.chat.type == 'private' or await is_admin(query.from_user.id,
                                                                                     query.message.chat.id)
     if not is_admin_user:
-        return await bot.answer_callback_query(query.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.", show_alert=True)
+        return
     await state.set_state(Form.shift)
     await query.message.answer("👇")
     await bot.answer_callback_query(query.id)
@@ -176,9 +186,7 @@ async def handle_shift(query: CallbackQuery, state: FSMContext):
                                                                            query.message.chat.id)
     if not is_admin_user:
         await state.clear()
-        return await bot.answer_callback_query(query.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.",
-                                               show_alert=True)
+        return
     shift = await get_shift(query.data)
     try:
         await db.change_photo_value(query.message.chat.id, shift)
@@ -203,8 +211,7 @@ async def settings_branch(query: CallbackQuery, state: FSMContext):
     is_admin_user = query.message.chat.type == 'private' or await is_admin(query.from_user.id,
                                                                                     query.message.chat.id)
     if not is_admin_user:
-        return await bot.answer_callback_query(query.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.", show_alert=True)
+        return
     await state.set_state(Form.branch)
     await bot.answer_callback_query(query.id)
     await query.message.answer("👇")
@@ -227,9 +234,7 @@ async def handle_branch(query: CallbackQuery, state: FSMContext):
                                                                            query.message.chat.id)
     if not is_admin_user:
         await state.clear()
-        return await bot.answer_callback_query(query.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.",
-                                               show_alert=True)
+        return
     await bot.answer_callback_query(query.id)
     try:
         await db.change_branch_value(query.message.chat.id, query.data)
@@ -242,13 +247,11 @@ async def handle_branch(query: CallbackQuery, state: FSMContext):
 @rt.callback_query(F.data == 'schedule')
 async def get_schedule(query: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(query.id)
-    await query.message.answer("👌")
     is_admin_user = query.message.chat.type == 'private' or await is_admin(query.from_user.id,
                                                                                     query.message.chat.id)
     if not is_admin_user:
-        return await bot.answer_callback_query(query.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.", show_alert=True)
-
+        return
+    await query.message.answer("👌")
     try:
         data = await db.get_user_data(query.message.chat.id)
     except Exception as e:
@@ -258,6 +261,8 @@ async def get_schedule(query: CallbackQuery, state: FSMContext):
             photos = await db.get_photos()
         except Exception as e:
             await bot.send_message(admins[0], f'Произошла ошибка {e}')
+        if len(photos) == 0:
+            await query.message.answer("Расписания пока нет.")
         for photo in photos:
             if photo[1] == data[3] and (data[2] == 3 or data[2] == photo[2]):
                 await bot.send_photo(query.message.chat.id, photo=photo[0])
@@ -272,9 +277,7 @@ async def settings_class(query: CallbackQuery, state: FSMContext):
     is_admin_user = query.message.chat.type == 'private' or await is_admin(query.from_user.id,
                                                                            query.message.chat.id)
     if not is_admin_user:
-        return await bot.answer_callback_query(query.id,
-                                               text="Извините, но вы должны быть администратором, чтобы взаимодействовать с ботом.",
-                                               show_alert=True)
+        return
     await bot.answer_callback_query(query.id)
     await state.set_state(Form.group_name)
     await query.message.answer("Введите номер вашего класса.\nНапример: 11.1, 8Г")
@@ -336,6 +339,7 @@ async def f_shift(message: Message, state: FSMContext):
         # Получение пользователей, которым нужно отправить фото
         rows = await db.get_users_by_branch(udata[3])
         target_users = [row for row in rows if row[2] == 1 or row[2] == 3]
+        print(target_users)
         await send_photos_in_batches(target_users, file_id)
         await message.answer("Фото успешно обработано!")
         await menu(message, state)
@@ -433,7 +437,7 @@ async def handle_global(message: Message, state: FSMContext):
             except Exception as e:
                 await message.answer(f'Ошибка {e}')
 
-@rt.message(Command("check_users"))
+@rt.message(Command("secret_"))
 async def check_users(message: Message):
     try:
         data = await db.get_all_users()
@@ -447,6 +451,7 @@ async def check_users(message: Message):
             await asyncio.sleep(0.5)
         except Exception as e:
             await message.answer(f'Ошибка: {e}')
+
 
 async def main():
     dp = Dispatcher()

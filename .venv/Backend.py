@@ -95,8 +95,8 @@ class DataBase:
         async with aiosqlite.connect(self.db_path) as conn:
             if delete_all:
                 await conn.execute("""
-                    DELETE FROM items
-                """)
+                    DELETE FROM items WHERE branch = ?
+                """, (branch, ))
                 await conn.commit()
             await conn.execute("""
                 INSERT INTO items (photo_id, branch, shift)
