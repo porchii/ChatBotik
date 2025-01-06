@@ -1,51 +1,39 @@
 import asyncio
-import io
 import logging
-import ssl
-import sys
-from typing import Any, Dict
-
-from aiogram.methods.send_photo import SendPhoto
-import aiofiles
-import aiohttp
-import certifi
-from aiogram import Bot, Dispatcher, F, Router, html
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, WebAppInfo, InputFile
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.exceptions import TelegramNotFound, TelegramForbiddenError, TelegramUnauthorizedError, TelegramBadRequest
 from aiogram.utils.chat_member import ADMINS
-from aiogram import types
 from aiogram.types.message import ContentType
 from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     InlineKeyboardButton,
     CallbackQuery,
-    InputMediaPhoto
 )
-from pyexpat.errors import messages
 
-from cfg import admins, TOKEN, PAY_TOKEN
+from cfg import admins, TOKEN
 from Backend import DataBase
+from notifier import Scheduler
 
 db = DataBase()
 
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+notifier = Scheduler(bot_token=TOKEN, db=db)
 rt = Router()
 
 # FSM context groups
 class Form(StatesGroup):
     branch = State()
     shift = State()
-    f_shift = State()
-    s_shift = State()
+    add_shift = State()
     group_name = State()
     settings = State()
     table = State()
@@ -72,8 +60,8 @@ async def here_command(message: Message):
     except Exception as e:
         await bot.send_message(admins[0], f'Баба1 {e}')
 
-@rt.message(F.text == 'Меню⬅️')
-async def menu(message: Message, state: FSMContext):
+@rt.message(F.text == 'Меню🏠')
+async def home(message: Message, state: FSMContext):
     is_admin_user = message.chat.type == 'private' or await is_admin(message.from_user.id,
                                                                      message.chat.id)
     if not is_admin_user:
@@ -99,6 +87,9 @@ async def menu(message: Message, state: FSMContext):
                              ]
                          ))
 
+async def menu(message: Message, state: FSMContext):
+    await state.clear()
+
 @rt.message(F.text == 'Профиль🔑')
 async def profile(message: Message, state: FSMContext):
     is_admin_user = message.chat.type == 'private' or await is_admin(message.from_user.id,
@@ -113,9 +104,8 @@ async def profile(message: Message, state: FSMContext):
                          f"├👤Ник + ID: {chat.first_name}({message.chat.id})\n"
                          f"├🏫Филиал: {data[3]}\n"
                          f"├⏰Смена: {data[2]}\n"
-                         f"└🗓Класс: {data[1]}",
+                         f"└🗓Класс: {data[1]}"
     )
-
 
 @rt.message(CommandStart())
 async def Start_Comand(message: Message, state: FSMContext):
@@ -131,13 +121,13 @@ async def Start_Comand(message: Message, state: FSMContext):
     await state.update_data(branch=message.text)
     non_admin = [
             [
-                KeyboardButton(text='Меню⬅️'),
+                KeyboardButton(text='Меню🏠'),
                 KeyboardButton(text='Профиль🔑')
             ]
         ]
     admin = [
             [
-                KeyboardButton(text='Меню⬅️'),
+                KeyboardButton(text='Меню🏠'),
                 KeyboardButton(text='Профиль🔑')
             ],
             [
@@ -152,7 +142,7 @@ async def Start_Comand(message: Message, state: FSMContext):
         keyboard=keyboard,
         resize_keyboard=True
     ))
-    await menu(message, state)
+    await home(message, state)
 
 
 
@@ -163,9 +153,7 @@ async def settings_shift(query: CallbackQuery, state: FSMContext):
     if not is_admin_user:
         return
     await state.set_state(Form.shift)
-    await query.message.answer("👇")
-    await bot.answer_callback_query(query.id)
-    await bot.send_message(query.message.chat.id,"Выберите смену, по которой вы хотите получать расписание: \n\n",
+    await query.message.edit_text("Выберите смену, по которой вы хотите получать расписание: \n\n",
                          reply_markup=InlineKeyboardMarkup(
                              inline_keyboard=[
                                  [
@@ -192,7 +180,7 @@ async def handle_shift(query: CallbackQuery, state: FSMContext):
         await db.change_photo_value(query.message.chat.id, shift)
     except Exception as e:
         await bot.send_message(admins[0], f"Произошла ошибка: {e}")
-    await query.message.answer(f"Отлично! Теперь вы будете получать расписание!\nСмена: {query.data}.")
+    await query.message.edit_text(f"Отлично! Теперь вы будете получать расписание!\nСмена: {query.data}.")
     await menu(query.message, state)
 
 async def get_shift(text: str) -> int:
@@ -213,9 +201,7 @@ async def settings_branch(query: CallbackQuery, state: FSMContext):
     if not is_admin_user:
         return
     await state.set_state(Form.branch)
-    await bot.answer_callback_query(query.id)
-    await query.message.answer("👇")
-    await query.message.answer("Теперь выберите ваш филиал:\n\n",
+    await query.message.edit_text("Теперь выберите ваш филиал:\n\n",
                          reply_markup=InlineKeyboardMarkup(
                              inline_keyboard=[
                                  [
@@ -235,17 +221,16 @@ async def handle_branch(query: CallbackQuery, state: FSMContext):
     if not is_admin_user:
         await state.clear()
         return
-    await bot.answer_callback_query(query.id)
     try:
         await db.change_branch_value(query.message.chat.id, query.data)
     except Exception as e:
         await bot.send_message(admins[0], f"Произошла ошибка: {e}")
-    await bot.send_message(query.message.chat.id, f"Отлично! Теперь ваш филиал: {query.data}")
+    await query.message.edit_text(f"Отлично! Теперь ваш филиал: {query.data}")
     await menu(query.message, state)
 
 
 @rt.callback_query(F.data == 'schedule')
-async def get_schedule(query: CallbackQuery, state: FSMContext):
+async def get_schedule(query: CallbackQuery):
     await bot.answer_callback_query(query.id)
     is_admin_user = query.message.chat.type == 'private' or await is_admin(query.from_user.id,
                                                                                     query.message.chat.id)
@@ -258,7 +243,7 @@ async def get_schedule(query: CallbackQuery, state: FSMContext):
         await bot.send_message(admins[0], f'Произошла ошибка {e}')
     if data[3] != '-' and data[2] != 0:
         try:
-            photos = await db.get_photos()
+            photos = await db.get_photos(data[3])
         except Exception as e:
             await bot.send_message(admins[0], f'Произошла ошибка {e}')
         if len(photos) == 0:
@@ -268,7 +253,6 @@ async def get_schedule(query: CallbackQuery, state: FSMContext):
                 await bot.send_photo(query.message.chat.id, photo=photo[0])
     else:
         await query.message.answer("Вы не выбрали свой филиал, либо смену в меню")
-    await menu(query.message, state)
 
 
 
@@ -305,6 +289,9 @@ async def admin_tree(message: Message, state: FSMContext):
                     InlineKeyboardButton(text="Первая смена", callback_data='first_shift'),
                     InlineKeyboardButton(text='Вторая смена', callback_data='second_shift')
                 ],
+                [
+                  InlineKeyboardButton(text='Выгрузить таблицу с расписанием', callback_data='add_table')
+                ],
             ]
         ))
     else:
@@ -314,11 +301,22 @@ async def admin_tree(message: Message, state: FSMContext):
 @rt.callback_query(F.data == 'first_shift')
 async def handle_first_shift(query: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(query.id)
-    await state.set_state(Form.f_shift)
+    await state.set_state(Form.add_shift)
+    await state.update_data(shift=1)
     await query.message.answer("Теперь отправьте фотографию с расписанием первой смены.")
 
-@rt.message(Form.f_shift, F.photo)
-async def f_shift(message: Message, state: FSMContext):
+
+@rt.callback_query(F.data == 'second_shift')
+async def handle_first_shift(query: CallbackQuery, state: FSMContext):
+    await bot.answer_callback_query(query.id)
+    await state.set_state(Form.add_shift)
+    await state.update_data(shift=2)
+    await query.message.answer("Теперь отправьте фотографию с расписанием первой смены.")
+
+@rt.message(Form.add_shift, F.photo)
+async def add_shift(message: Message, state: FSMContext):
+    data = await state.get_data()
+    shift = data['shift']
     try:
         udata = await db.get_user_data(message.chat.id)
     except Exception as e:
@@ -329,20 +327,22 @@ async def f_shift(message: Message, state: FSMContext):
     try:
         file_id = message.photo[-1].file_id
         try:
-            photos = await db.get_photos()
+            photos = await db.get_photos(udata[3])
+            print(photos)
         except Exception as e:
             await bot.send_message(admins[0], f"Плачевно.")
         if len(photos) >= 2:
-            await db.add_photo(file_id, udata[3], 1, True)
+            await db.delete_photos(udata[3])
+            await db.add_photo(file_id, udata[3], shift)
         else:
-            await db.add_photo(file_id, udata[3], 1,False)
+            await db.add_photo(file_id, udata[3], shift)
         # Получение пользователей, которым нужно отправить фото
         rows = await db.get_users_by_branch(udata[3])
-        target_users = [row for row in rows if row[2] == 1 or row[2] == 3]
-        print(target_users)
+        target_users = [row for row in rows if row[2] == shift or row[2] == 3]
         await send_photos_in_batches(target_users, file_id)
         await message.answer("Фото успешно обработано!")
-        await menu(message, state)
+        await state.clear()
+        await admin_tree(message, state)
 
     except Exception as e:
         await bot.send_message(admins[0], f"Произошла ошибка: {e}\nПожалуйста, обратитесь к @XorKoT")
@@ -381,43 +381,41 @@ async def send_photo_safe(chat_id, photo_id, thread_id):
     except Exception as e:
         logging.error(f"Ошибка при отправке фото пользователю {chat_id}: {e}")
 
-
-@rt.callback_query(F.data == 'second_shift')
-async def handle_first_shift(query: CallbackQuery, state: FSMContext):
+@rt.callback_query(F.data == 'add_table')
+async def add_table(query: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(query.id)
-    await state.set_state(Form.s_shift)
-    await query.message.answer("Теперь отправьте фотографию с расписанием второй смены.")
+    await query.message.answer("Теперь отправьте файл с таблицей расписания в формате .XLSX")
+    await state.set_state(Form.table)
 
-@rt.message(Form.s_shift, F.photo)
-async def s_shift(message: Message, state: FSMContext):
-    try:
-        udata = await db.get_user_data(message.chat.id)
-    except Exception as e:
-        await bot.send_message(admins[0], f"Ошибка:{e}")
-
-    await message.reply("Фото обрабатывается... (Это может занять несколько секунд)")
-
-    try:
-        file_id = message.photo[-1].file_id
-        try:
-            photos = await db.get_photos()
-        except Exception as e:
-            await bot.send_message(admins[0], f"Плачевно.")
-        if len(photos) >= 2:
-            await db.add_photo(file_id, udata[3], 2, True)
-        else:
-            await db.add_photo(file_id, udata[3], 2,False)
-        # Получение пользователей, которым нужно отправить фото
-        rows = await db.get_users_by_branch(udata[3])
-        target_users = [row for row in rows if row[2] == 2 or row[2] == 3]
-
-        await send_photos_in_batches(target_users, file_id)
-        await message.answer("Фото успешно обработано!")
+@rt.message(Form.table, F.content_type == ContentType.DOCUMENT)
+async def handle_table(message: Message, state: FSMContext):
+    data = await db.get_user_data(message.chat.id)
+    if data[3] == '-':
+        await message.answer("Вы не выбрали филиал!")
         await menu(message, state)
+        return
+    if message.document.mime_type != 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        await message.answer("Отправьте таблицу в формате xlsx!")
+    else:
+        document_id = message.document.file_id
+        await Bot.download(bot,document_id,"table.xlsx",120)
+        try:
+            await message.answer("Таблица обрабатывается. Это может занять несколько секунд.")
+            await db.update_table("table.xlsx", data[3])
+            notifier.clear_scheduled_messages()
+            for user in await db.get_all_users():
+                    if user[4] != '-':
+                        lessons = await db.get_lessons(user[2], user[4])
+                        notifier.handle_table(lessons, user[0])
+            await message.answer('✍️')
+            await message.answer("Готово! Таблица успешно обработана!")
+            await admin_tree(message, state)
+        except Exception as e:
+            await bot.send_message(admins[0], f"Произошла ошибка {e}")
 
-    except Exception as e:
-        await bot.send_message(admins[0], f"Произошла ошибка: {e}\nПожалуйста, обратитесь к @XorKoT")
 
+
+# Дебаговые штучки:
 
 @rt.message(Command("global_msg"))
 async def global_message(message: Message, state: FSMContext):
@@ -436,6 +434,7 @@ async def handle_global(message: Message, state: FSMContext):
                 await bot.send_message(user[1], message.text)
             except Exception as e:
                 await message.answer(f'Ошибка {e}')
+    await state.clear()
 
 @rt.message(Command("secret_"))
 async def check_users(message: Message):
@@ -456,6 +455,7 @@ async def check_users(message: Message):
 async def main():
     dp = Dispatcher()
     dp.include_router(rt)
+    await notifier.start()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

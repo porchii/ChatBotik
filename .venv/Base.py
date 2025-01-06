@@ -17,7 +17,7 @@ def is_script_running(script_name):
 
 
 def start_script(script_path):
-    subprocess.Popen(['python3', script_path])
+    subprocess.Popen(['python', script_path])
 
 
 if __name__ == "__main__":
